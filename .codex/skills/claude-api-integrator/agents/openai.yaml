@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude API Integrator"
+  short_description: "Integrate Claude API with streaming, parsing, and retries"
+  default_prompt: "Use $claude-api-integrator to add or improve Anthropic Claude API integration in this backend flow."

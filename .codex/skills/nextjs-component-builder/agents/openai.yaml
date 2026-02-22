@@ -1,0 +1,4 @@
+interface:
+  display_name: "Next.js Component Builder"
+  short_description: "Build typed Next.js components, forms, and layouts"
+  default_prompt: "Use $nextjs-component-builder to implement this component with App Router, RHF+Zod, and accessibility defaults."

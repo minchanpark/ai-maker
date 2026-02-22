@@ -1,0 +1,50 @@
+# Settings for Backend (on Cloud Run).
+# See https://firebase.google.com/docs/app-hosting/configure#cloud-run
+runConfig:
+  minInstances: 0
+  # maxInstances: 100
+  # concurrency: 80
+  # cpu: 1
+  # memoryMiB: 512
+
+# Environment variables and secrets.
+env:
+  - variable: CLAUDE_API_KEY
+    secret: CLAUDE_API_KEY
+    availability:
+      - RUNTIME
+  - variable: CLAUDE_MODEL
+    value: claude-haiku-4-5-20251001
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CLAUDE_CHAT_MODEL
+    value: claude-haiku-4-5-20251001
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CLAUDE_CHAT_MAX_TOKENS
+    value: "8192"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_CONTEXT_POLICY
+    value: quality_guard_v1
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_CONTEXT_TOTAL_BUDGET_CHARS
+    value: "120000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_CONTEXT_FILE_BUDGET_CHARS
+    value: "72000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_CONTEXT_HISTORY_BUDGET_CHARS
+    value: "36000"
+    availability:
+      - BUILD
+      - RUNTIME

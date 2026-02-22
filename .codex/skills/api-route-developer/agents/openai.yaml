@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Route Developer"
+  short_description: "Build robust Next.js API routes with Claude integration"
+  default_prompt: "Use $api-route-developer to implement or harden a Next.js API route with validation, streaming, and error handling."

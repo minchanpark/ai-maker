@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dev Session Context Loader"
+  short_description: "Load dev docs and bootstrap session context quickly"
+  default_prompt: "Use $dev-session-context-loader to load all dev docs and summarize session constraints before implementation."

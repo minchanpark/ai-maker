@@ -1,0 +1,4 @@
+interface:
+  display_name: "UX Reviewer"
+  short_description: "Review usability, accessibility, and mobile UX risks"
+  default_prompt: "Use $ux-reviewer to audit this UI and return prioritized UX issues with actionable fixes."

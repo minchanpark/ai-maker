@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Implementer"
+  short_description: "Implement App Router UIs with strong UX and typing"
+  default_prompt: "Use $frontend-implementer to build a production-ready Next.js UI with form validation and state handling."
