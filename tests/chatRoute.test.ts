@@ -5,6 +5,14 @@ import { createGeneratedPackage } from '@/lib/api/generatePackage';
 import { baseInput } from '@/tests/fixtures';
 import type { ChatRequestPayload } from '@/types';
 
+function jsonHeaders(params?: { origin?: string; ip?: string }) {
+  return {
+    'Content-Type': 'application/json',
+    Origin: params?.origin ?? 'http://localhost',
+    'x-forwarded-for': params?.ip ?? '127.0.0.1',
+  };
+}
+
 function createAnthropicStreamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
 
@@ -52,14 +60,17 @@ describe('/api/chat', () => {
     delete process.env.CLAUDE_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.CHAT_CONTEXT_POLICY;
+    delete process.env.APP_ORIGIN;
+    delete process.env.ALLOWED_ORIGINS;
+    delete process.env.ORIGIN_CHECK_STRICT;
+    delete process.env.RATE_LIMIT_WINDOW_MS;
+    delete process.env.CHAT_RATE_LIMIT_MAX;
   });
 
   it('returns 400 for invalid payload', async () => {
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: jsonHeaders(),
       body: JSON.stringify({ message: '' }),
     });
 
@@ -81,9 +92,7 @@ describe('/api/chat', () => {
 
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: jsonHeaders(),
       body: JSON.stringify(payload),
     });
 
@@ -94,14 +103,46 @@ describe('/api/chat', () => {
   it('returns 503 when API key is missing', async () => {
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: jsonHeaders(),
       body: JSON.stringify(buildPayload()),
     });
 
     const res = await POST(req as never);
     expect(res.status).toBe(503);
+  });
+
+  it('accepts empty history content without 400', async () => {
+    process.env.CLAUDE_API_KEY = 'test-key';
+
+    const payload = buildPayload();
+    payload.history = [
+      {
+        role: 'assistant',
+        content: '',
+      },
+      {
+        role: 'user',
+        content: '이 부분만 더 명확하게 정리해줘',
+      },
+    ];
+
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      createAnthropicStreamResponse([
+        `data: ${JSON.stringify({
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: '```markdown\nno-op\n```' },
+        })}\n\n`,
+      ]),
+    );
+
+    const req = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    const res = await POST(req as never);
+    expect(res.status).toBe(200);
   });
 
   it('streams token -> file_update -> done for quality-gate passing response', async () => {
@@ -127,9 +168,7 @@ describe('/api/chat', () => {
 
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: jsonHeaders(),
       body: JSON.stringify(payload),
     });
 
@@ -161,9 +200,7 @@ describe('/api/chat', () => {
 
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: jsonHeaders(),
       body: JSON.stringify(payload),
     });
 
@@ -174,6 +211,52 @@ describe('/api/chat', () => {
     expect(text).toContain('event: done');
     expect(text).not.toContain('event: file_update');
     expect(text).not.toContain('event: warning');
+  });
+
+  it('recovers from max_tokens stop and still emits file_update', async () => {
+    process.env.CLAUDE_API_KEY = 'test-key';
+
+    const payload = buildPayload();
+    const updatedContent = payload.selectedFile.content.replace(
+      /^description: .+$/m,
+      `description: ${'요청 맥락을 유지하면서 실행 가능한 체크리스트와 판단 기준을 상세하게 확장합니다. '.repeat(4).trim()}`,
+    );
+
+    const fetchMock = vi.spyOn(global, 'fetch');
+    fetchMock
+      .mockResolvedValueOnce(
+        createAnthropicStreamResponse([
+          `data: ${JSON.stringify({
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: '```markdown\n---\nname:' },
+          })}\n\n`,
+          `data: ${JSON.stringify({ type: 'message_stop', stop_reason: 'max_tokens' })}\n\n`,
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: `\`\`\`markdown\n${updatedContent}\n\`\`\`` }],
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+
+    const req = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    const res = await POST(req as never);
+    expect(res.status).toBe(200);
+
+    const text = await res.text();
+    expect(text).toContain('event: file_update');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('handles large context without warning event', async () => {
@@ -202,9 +285,7 @@ describe('/api/chat', () => {
 
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: jsonHeaders(),
       body: JSON.stringify(payload),
     });
 
@@ -230,9 +311,7 @@ describe('/api/chat', () => {
 
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: jsonHeaders(),
       body: JSON.stringify(buildPayload()),
     });
 
@@ -242,5 +321,53 @@ describe('/api/chat', () => {
     const text = await res.text();
     expect(text).toContain('event: error');
     expect(text).toContain('event: done');
+  });
+
+  it('returns 403 when origin is not allowed', async () => {
+    process.env.CLAUDE_API_KEY = 'test-key';
+    process.env.APP_ORIGIN = 'https://app.example.com';
+
+    const req = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: jsonHeaders({ origin: 'https://evil.example.com' }),
+      body: JSON.stringify(buildPayload()),
+    });
+
+    const res = await POST(req as never);
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 429 when chat rate limit is exceeded', async () => {
+    process.env.CLAUDE_API_KEY = 'test-key';
+    process.env.CHAT_RATE_LIMIT_MAX = '1';
+    process.env.RATE_LIMIT_WINDOW_MS = '60000';
+
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      createAnthropicStreamResponse([
+        `data: ${JSON.stringify({
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: '```markdown\\nnoop\\n```' },
+        })}\n\n`,
+      ]),
+    );
+
+    const payload = buildPayload();
+    const first = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: jsonHeaders({ ip: '203.0.113.77' }),
+        body: JSON.stringify(payload),
+      }) as never,
+    );
+    expect(first.status).toBe(200);
+
+    const second = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: jsonHeaders({ ip: '203.0.113.77' }),
+        body: JSON.stringify(payload),
+      }) as never,
+    );
+    expect(second.status).toBe(429);
   });
 });

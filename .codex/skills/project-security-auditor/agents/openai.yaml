@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Security Auditor"
+  short_description: "Audit this repo for practical security risks"
+  default_prompt: "Use $project-security-auditor to analyze this project end-to-end and produce a prioritized security review with concrete fixes."

@@ -18,13 +18,58 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: CLAUDE_GENERATE_TIMEOUT_MS
+    value: "45000"
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: CLAUDE_CHAT_MODEL
-    value: claude-haiku-4-5-20251001
+    value: claude-sonnet-4-5
     availability:
       - BUILD
       - RUNTIME
   - variable: CLAUDE_CHAT_MAX_TOKENS
-    value: "8192"
+    value: "16384"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CLAUDE_CHAT_MAX_RESPONSE_CHARS
+    value: "1000000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CLAUDE_CHAT_STREAM_TOTAL_TIMEOUT_MS
+    value: "180000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CLAUDE_CHAT_STREAM_IDLE_TIMEOUT_MS
+    value: "30000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CLAUDE_CHAT_RECOVERY_TIMEOUT_MS
+    value: "45000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: ORIGIN_CHECK_STRICT
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: RATE_LIMIT_WINDOW_MS
+    value: "60000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_RATE_LIMIT_MAX
+    value: "45"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: GENERATE_RATE_LIMIT_MAX
+    value: "20"
     availability:
       - BUILD
       - RUNTIME
@@ -34,17 +79,37 @@ env:
       - BUILD
       - RUNTIME
   - variable: CHAT_CONTEXT_TOTAL_BUDGET_CHARS
-    value: "120000"
+    value: "180000"
     availability:
       - BUILD
       - RUNTIME
   - variable: CHAT_CONTEXT_FILE_BUDGET_CHARS
-    value: "72000"
+    value: "110000"
     availability:
       - BUILD
       - RUNTIME
   - variable: CHAT_CONTEXT_HISTORY_BUDGET_CHARS
-    value: "36000"
+    value: "60000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_CONTEXT_MAX_MESSAGE_CHARS
+    value: "12000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_CONTEXT_MAX_HISTORY_TURNS
+    value: "100"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_CONTEXT_MAX_HISTORY_TURN_CHARS
+    value: "4000"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: CHAT_CONTEXT_PINNED_HISTORY_TURNS
+    value: "16"
     availability:
       - BUILD
       - RUNTIME

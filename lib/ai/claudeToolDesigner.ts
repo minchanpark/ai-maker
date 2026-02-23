@@ -235,6 +235,20 @@ function safeErrorMessage(payload: unknown): string {
   return '';
 }
 
+function resolveClaudeGenerateTimeoutMs(): number {
+  const raw = process.env.CLAUDE_GENERATE_TIMEOUT_MS;
+  if (!raw) {
+    return 45_000;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) {
+    return 45_000;
+  }
+
+  return Math.max(10_000, parsed);
+}
+
 function ensureSkillDescriptionLength(params: {
   description: string;
   input: ProjectInput;
@@ -301,28 +315,44 @@ export async function requestClaudeToolDraft(params: {
   model: string;
 }): Promise<ClaudeToolDraft> {
   const { input, fallback, apiKey, model } = params;
+  const timeoutMs = resolveClaudeGenerateTimeoutMs();
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 2200,
-      temperature: 0.2,
-      system:
-        'You design practical Claude Code tools. Output must be a single JSON object that strictly follows the requested schema.',
-      messages: [
-        {
-          role: 'user',
-          content: buildUserPrompt(input, fallback),
-        },
-      ],
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: 2200,
+        temperature: 0.2,
+        system:
+          'You design practical Claude Code tools. Output must be a single JSON object that strictly follows the requested schema.',
+        messages: [
+          {
+            role: 'user',
+            content: buildUserPrompt(input, fallback),
+          },
+        ],
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Claude API 요청이 시간 제한을 초과했습니다.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const payload = (await response.json()) as unknown;
 

@@ -54,6 +54,28 @@ function parseSseBlock(raw: string): ParsedSseBlock | null {
   }
 }
 
+function readValidationDetails(details: unknown): string {
+  if (!details || typeof details !== 'object') {
+    return '';
+  }
+
+  const payload = details as {
+    fieldErrors?: Record<string, string[] | undefined>;
+    formErrors?: string[];
+  };
+
+  const fieldEntry = Object.entries(payload.fieldErrors ?? {}).find(([, messages]) => Array.isArray(messages) && messages.length > 0);
+  if (fieldEntry && fieldEntry[1]?.[0]) {
+    return `${fieldEntry[0]}: ${fieldEntry[1][0]}`;
+  }
+
+  if (Array.isArray(payload.formErrors) && payload.formErrors.length > 0) {
+    return payload.formErrors[0] ?? '';
+  }
+
+  return '';
+}
+
 export default function ChatPage() {
   const [viewMode, setViewMode] = useState<'file' | 'diff'>('file');
   const {
@@ -107,11 +129,13 @@ export default function ChatPage() {
 
     const history = chatMessages
       .filter((chatMessage) => chatMessage.role === 'user' || chatMessage.role === 'assistant')
+      .filter((chatMessage) => (chatMessage.content ?? '').trim().length > 0)
+      .filter((chatMessage) => chatMessage.status !== 'streaming')
       .map((chatMessage) => ({
         role: chatMessage.role,
-        content: chatMessage.content,
+        content: chatMessage.content.trim(),
       }))
-      .slice(-30) as ChatRequestPayload['history'];
+      .slice(-100) as ChatRequestPayload['history'];
 
     addChatMessage({
       id: makeMessageId(),
@@ -155,9 +179,12 @@ export default function ChatPage() {
       if (!response.ok) {
         const errorPayload = (await response.json().catch(() => ({ error: '채팅 요청에 실패했습니다.' }))) as {
           error?: string;
+          details?: unknown;
         };
 
-        throw new Error(errorPayload.error || '채팅 요청에 실패했습니다.');
+        const detail = readValidationDetails(errorPayload.details);
+        const message = errorPayload.error || '채팅 요청에 실패했습니다.';
+        throw new Error(detail ? `${message} (${detail})` : message);
       }
 
       if (!response.body) {

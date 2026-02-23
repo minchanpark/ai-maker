@@ -34,20 +34,36 @@ npm run dev
 CLAUDE_API_KEY=your_claude_api_key
 # 선택: 생성용 모델 (기본값 claude-sonnet-4-5)
 CLAUDE_MODEL=claude-sonnet-4-5
-# 선택: 채팅용 모델 (없으면 CLAUDE_MODEL 사용)
+CLAUDE_GENERATE_TIMEOUT_MS=45000
+# 선택: 채팅용 모델 (미설정 시 기본값 claude-sonnet-4-5)
 CLAUDE_CHAT_MODEL=claude-sonnet-4-5
-CLAUDE_CHAT_MAX_TOKENS=8192
+CLAUDE_CHAT_MAX_TOKENS=16384
+CLAUDE_CHAT_MAX_RESPONSE_CHARS=1000000
+CLAUDE_CHAT_STREAM_TOTAL_TIMEOUT_MS=180000
+CLAUDE_CHAT_STREAM_IDLE_TIMEOUT_MS=30000
+CLAUDE_CHAT_RECOVERY_TIMEOUT_MS=45000
+ORIGIN_CHECK_STRICT=true
+APP_ORIGIN=https://your-domain.example
+RATE_LIMIT_WINDOW_MS=60000
+CHAT_RATE_LIMIT_MAX=45
+GENERATE_RATE_LIMIT_MAX=20
 # 선택: /api/chat 컨텍스트 정책 (quality_guard_v1 | legacy)
 CHAT_CONTEXT_POLICY=quality_guard_v1
-CHAT_CONTEXT_TOTAL_BUDGET_CHARS=120000
-CHAT_CONTEXT_FILE_BUDGET_CHARS=72000
-CHAT_CONTEXT_HISTORY_BUDGET_CHARS=36000
+CHAT_CONTEXT_TOTAL_BUDGET_CHARS=180000
+CHAT_CONTEXT_FILE_BUDGET_CHARS=110000
+CHAT_CONTEXT_HISTORY_BUDGET_CHARS=60000
+CHAT_CONTEXT_MAX_MESSAGE_CHARS=12000
+CHAT_CONTEXT_MAX_HISTORY_TURNS=100
+CHAT_CONTEXT_MAX_HISTORY_TURN_CHARS=4000
+CHAT_CONTEXT_PINNED_HISTORY_TURNS=16
 ```
 
 - `CLAUDE_API_KEY`가 있으면 `/api/generate`가 Claude API를 사용해 Skill/Hook/Agent 초안을 만듭니다.
 - 키가 없거나 API 호출에 실패하면 기존 규칙 기반 생성으로 자동 폴백됩니다.
 - `/api/chat`는 SSE 스트리밍으로 응답하며, 코드블록 검증 성공 시 선택 파일을 자동 반영합니다.
 - `/api/chat`는 컨텍스트 초과/검증 스킵 상황에서도 팝업/토스트 없이 조용히 최적화/반영 스킵 처리합니다.
+- `ORIGIN_CHECK_STRICT=true`이면 `/api/chat`, `/api/generate`에서 origin/referer를 검증합니다.
+- `RATE_LIMIT_WINDOW_MS`, `CHAT_RATE_LIMIT_MAX`, `GENERATE_RATE_LIMIT_MAX`로 요청 한도를 제어합니다.
 
 ## 검증 명령
 ```bash

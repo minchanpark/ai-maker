@@ -8,19 +8,19 @@ import type {
 const DEFAULT_CONTEXT_POLICY = 'quality_guard_v1';
 
 const DEFAULT_CONTEXT_BUDGET: ContextBudgetConfig = {
-  totalBudgetChars: 120_000,
-  fileBudgetChars: 72_000,
-  historyBudgetChars: 36_000,
-  maxMessageChars: 4_000,
-  maxHistoryTurns: 30,
-  maxHistoryTurnChars: 2_000,
-  pinnedHistoryTurns: 12,
-  historySummaryMaxChars: 1_800,
+  totalBudgetChars: 180_000,
+  fileBudgetChars: 110_000,
+  historyBudgetChars: 60_000,
+  maxMessageChars: 12_000,
+  maxHistoryTurns: 100,
+  maxHistoryTurnChars: 4_000,
+  pinnedHistoryTurns: 16,
+  historySummaryMaxChars: 2_400,
   fileHeadLines: 120,
   fileTailLines: 80,
   fileWindowPadding: 40,
   fileMaxWindows: 8,
-  promptOverheadChars: 7_000,
+  promptOverheadChars: 9_000,
 };
 
 export type ChatContextPolicy = 'quality_guard_v1' | 'legacy';
@@ -67,20 +67,38 @@ export function resolveChatContextPolicy(): ChatContextPolicy {
 }
 
 export function getContextBudgetConfig(): ContextBudgetConfig {
+  const maxHistoryTurns = readPositiveIntEnv('CHAT_CONTEXT_MAX_HISTORY_TURNS', DEFAULT_CONTEXT_BUDGET.maxHistoryTurns);
+  const pinnedHistoryTurns = Math.min(
+    readPositiveIntEnv('CHAT_CONTEXT_PINNED_HISTORY_TURNS', DEFAULT_CONTEXT_BUDGET.pinnedHistoryTurns),
+    maxHistoryTurns,
+  );
+
   return {
     totalBudgetChars: readPositiveIntEnv('CHAT_CONTEXT_TOTAL_BUDGET_CHARS', DEFAULT_CONTEXT_BUDGET.totalBudgetChars),
     fileBudgetChars: readPositiveIntEnv('CHAT_CONTEXT_FILE_BUDGET_CHARS', DEFAULT_CONTEXT_BUDGET.fileBudgetChars),
     historyBudgetChars: readPositiveIntEnv('CHAT_CONTEXT_HISTORY_BUDGET_CHARS', DEFAULT_CONTEXT_BUDGET.historyBudgetChars),
-    maxMessageChars: DEFAULT_CONTEXT_BUDGET.maxMessageChars,
-    maxHistoryTurns: DEFAULT_CONTEXT_BUDGET.maxHistoryTurns,
-    maxHistoryTurnChars: DEFAULT_CONTEXT_BUDGET.maxHistoryTurnChars,
-    pinnedHistoryTurns: DEFAULT_CONTEXT_BUDGET.pinnedHistoryTurns,
-    historySummaryMaxChars: DEFAULT_CONTEXT_BUDGET.historySummaryMaxChars,
-    fileHeadLines: DEFAULT_CONTEXT_BUDGET.fileHeadLines,
-    fileTailLines: DEFAULT_CONTEXT_BUDGET.fileTailLines,
-    fileWindowPadding: DEFAULT_CONTEXT_BUDGET.fileWindowPadding,
-    fileMaxWindows: DEFAULT_CONTEXT_BUDGET.fileMaxWindows,
-    promptOverheadChars: DEFAULT_CONTEXT_BUDGET.promptOverheadChars,
+    maxMessageChars: readPositiveIntEnv('CHAT_CONTEXT_MAX_MESSAGE_CHARS', DEFAULT_CONTEXT_BUDGET.maxMessageChars),
+    maxHistoryTurns,
+    maxHistoryTurnChars: readPositiveIntEnv(
+      'CHAT_CONTEXT_MAX_HISTORY_TURN_CHARS',
+      DEFAULT_CONTEXT_BUDGET.maxHistoryTurnChars,
+    ),
+    pinnedHistoryTurns,
+    historySummaryMaxChars: readPositiveIntEnv(
+      'CHAT_CONTEXT_HISTORY_SUMMARY_MAX_CHARS',
+      DEFAULT_CONTEXT_BUDGET.historySummaryMaxChars,
+    ),
+    fileHeadLines: readPositiveIntEnv('CHAT_CONTEXT_FILE_HEAD_LINES', DEFAULT_CONTEXT_BUDGET.fileHeadLines),
+    fileTailLines: readPositiveIntEnv('CHAT_CONTEXT_FILE_TAIL_LINES', DEFAULT_CONTEXT_BUDGET.fileTailLines),
+    fileWindowPadding: readPositiveIntEnv(
+      'CHAT_CONTEXT_FILE_WINDOW_PADDING',
+      DEFAULT_CONTEXT_BUDGET.fileWindowPadding,
+    ),
+    fileMaxWindows: readPositiveIntEnv('CHAT_CONTEXT_FILE_MAX_WINDOWS', DEFAULT_CONTEXT_BUDGET.fileMaxWindows),
+    promptOverheadChars: readPositiveIntEnv(
+      'CHAT_CONTEXT_PROMPT_OVERHEAD_CHARS',
+      DEFAULT_CONTEXT_BUDGET.promptOverheadChars,
+    ),
   };
 }
 

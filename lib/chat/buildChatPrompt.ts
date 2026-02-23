@@ -7,14 +7,34 @@ interface BuildChatPromptInput {
   blueprint: ChatRequestPayload['blueprint'];
   fileContext: string;
   historySummary?: string;
+  contextBudget: {
+    totalBudgetChars: number;
+    fileBudgetChars: number;
+    historyBudgetChars: number;
+    maxMessageChars: number;
+    maxHistoryTurns: number;
+    maxHistoryTurnChars: number;
+    pinnedHistoryTurns: number;
+    fileCharsUsed: number;
+    historyCharsUsed: number;
+    messageChars: number;
+    historyTurnsReceived: number;
+    historyTurnsUsed: number;
+    historyTurnsSummarized: number;
+    trimmedChars: number;
+  };
 }
 
 function formatList(items: string[]): string {
   return items.map((item) => `- ${item}`).join('\n');
 }
 
+function formatNumber(value: number): string {
+  return value.toLocaleString('en-US');
+}
+
 export function buildChatSystemPrompt(input: BuildChatPromptInput): string {
-  const { selectedFile, availablePaths, projectInput, blueprint, fileContext, historySummary } = input;
+  const { selectedFile, availablePaths, projectInput, blueprint, fileContext, historySummary, contextBudget } = input;
   const prompt = [
     '당신은 Claude Code의 Skill/Hook/Agent 파일 편집 전문가입니다.',
     '요청받은 범위 내에서만 수정하고, 기존 포맷과 의도를 유지하세요.',
@@ -50,6 +70,30 @@ export function buildChatSystemPrompt(input: BuildChatPromptInput): string {
     '\`\`\`',
     '',
   ];
+
+  prompt.push(
+    '[컨텍스트 예산 - 서버 강제]',
+    `- totalBudgetChars: ${formatNumber(contextBudget.totalBudgetChars)}`,
+    `- fileBudgetChars: ${formatNumber(contextBudget.fileBudgetChars)}`,
+    `- historyBudgetChars: ${formatNumber(contextBudget.historyBudgetChars)}`,
+    `- maxMessageChars: ${formatNumber(contextBudget.maxMessageChars)}`,
+    `- maxHistoryTurns: ${formatNumber(contextBudget.maxHistoryTurns)}`,
+    `- maxHistoryTurnChars: ${formatNumber(contextBudget.maxHistoryTurnChars)}`,
+    `- pinnedHistoryTurns: ${formatNumber(contextBudget.pinnedHistoryTurns)}`,
+    `- used.fileChars: ${formatNumber(contextBudget.fileCharsUsed)}`,
+    `- used.historyChars: ${formatNumber(contextBudget.historyCharsUsed)}`,
+    `- used.messageChars: ${formatNumber(contextBudget.messageChars)}`,
+    `- used.historyTurns: ${formatNumber(contextBudget.historyTurnsUsed)} / ${formatNumber(contextBudget.historyTurnsReceived)}`,
+    `- summarizedTurns: ${formatNumber(contextBudget.historyTurnsSummarized)}`,
+    `- trimmedChars: ${formatNumber(contextBudget.trimmedChars)}`,
+    '',
+    '[예산 대응 규칙 - 반드시 준수]',
+    '1. 예산이 빡빡해도 응답을 중간에 멈추지 말고, 수정된 파일을 코드블록 하나로 완결 출력합니다.',
+    '2. 설명/근거 문장은 최소화하고, 변경 요약은 1~2줄 불릿으로 짧게 작성합니다.',
+    '3. 비핵심 리라이트를 금지하고, 사용자 요청과 직접 관련된 구간만 정밀 수정합니다.',
+    '4. "생략", "...", "[truncated]" 같은 미완성 표기를 출력하지 않습니다.',
+    '',
+  );
 
   if (historySummary) {
     prompt.push('[대화 요약 메모리]', historySummary, '');

@@ -5,14 +5,23 @@ import { buildChatSystemPrompt } from '@/lib/chat/buildChatPrompt';
 import { assembleChatContext, resolveChatContextPolicy } from '@/lib/chat/contextPolicy';
 import { extractCodeBlocks, extractFirstCodeBlock, extractSummaryLines } from '@/lib/chat/parseChatResponse';
 import { evaluateUpdate } from '@/lib/chat/qualityGate';
+import {
+  enforceRateLimit,
+  getChatRateLimitMax,
+  getRateLimitWindowMs,
+  verifyOrigin,
+} from '@/lib/security/requestGuards';
 import { isAllowedChatTargetPath, validateFileUpdate } from '@/lib/chat/validateFileUpdate';
 import type { ChatSseEvent } from '@/types';
 
 export const runtime = 'nodejs';
 
-const MAX_RESPONSE_CHARS = 200_000;
+const DEFAULT_MAX_RESPONSE_CHARS = 1_000_000;
 const DEFAULT_CHAT_MODEL = 'claude-sonnet-4-5';
 const DEFAULT_CHAT_MAX_TOKENS = 16_384;
+const DEFAULT_CHAT_STREAM_TOTAL_TIMEOUT_MS = 180_000;
+const DEFAULT_CHAT_STREAM_IDLE_TIMEOUT_MS = 30_000;
+const DEFAULT_CHAT_RECOVERY_TIMEOUT_MS = 45_000;
 
 const generatedFileSchema = z.object({
   path: z.string().min(1),
@@ -48,11 +57,20 @@ const chatRequestSchema = z.object({
     .array(
       z.object({
         role: z.enum(['user', 'assistant']),
-        content: z.string().min(1),
+        content: z.string(),
       }),
     )
     .max(100),
 });
+
+function resolveChatModel(): string {
+  const explicitChatModel = process.env.CLAUDE_CHAT_MODEL?.trim();
+  if (explicitChatModel) {
+    return explicitChatModel;
+  }
+
+  return DEFAULT_CHAT_MODEL;
+}
 
 function resolveChatMaxTokens(): number {
   const raw = process.env.CLAUDE_CHAT_MAX_TOKENS;
@@ -66,6 +84,115 @@ function resolveChatMaxTokens(): number {
   }
 
   return Math.max(1024, parsed);
+}
+
+function resolveMaxResponseChars(): number {
+  const raw = process.env.CLAUDE_CHAT_MAX_RESPONSE_CHARS;
+  if (!raw) {
+    return DEFAULT_MAX_RESPONSE_CHARS;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_MAX_RESPONSE_CHARS;
+  }
+
+  return Math.max(10_000, parsed);
+}
+
+function resolveChatStreamTotalTimeoutMs(): number {
+  const raw = process.env.CLAUDE_CHAT_STREAM_TOTAL_TIMEOUT_MS;
+  if (!raw) {
+    return DEFAULT_CHAT_STREAM_TOTAL_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_CHAT_STREAM_TOTAL_TIMEOUT_MS;
+  }
+
+  return Math.max(30_000, parsed);
+}
+
+function resolveChatStreamIdleTimeoutMs(): number {
+  const raw = process.env.CLAUDE_CHAT_STREAM_IDLE_TIMEOUT_MS;
+  if (!raw) {
+    return DEFAULT_CHAT_STREAM_IDLE_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_CHAT_STREAM_IDLE_TIMEOUT_MS;
+  }
+
+  return Math.max(10_000, parsed);
+}
+
+function resolveChatRecoveryTimeoutMs(): number {
+  const raw = process.env.CLAUDE_CHAT_RECOVERY_TIMEOUT_MS;
+  if (!raw) {
+    return DEFAULT_CHAT_RECOVERY_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_CHAT_RECOVERY_TIMEOUT_MS;
+  }
+
+  return Math.max(10_000, parsed);
+}
+
+function createTimedAbortController(timeoutMs: number): {
+  controller: AbortController;
+  clear: () => void;
+} {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  return {
+    controller,
+    clear: () => clearTimeout(timer),
+  };
+}
+
+function createStreamingAbortController(params: {
+  totalTimeoutMs: number;
+  idleTimeoutMs: number;
+}): {
+  controller: AbortController;
+  touch: () => void;
+  clear: () => void;
+} {
+  const { totalTimeoutMs, idleTimeoutMs } = params;
+  const controller = new AbortController();
+  const totalTimer = setTimeout(() => {
+    controller.abort();
+  }, totalTimeoutMs);
+
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const touch = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
+    idleTimer = setTimeout(() => {
+      controller.abort();
+    }, idleTimeoutMs);
+  };
+
+  touch();
+
+  return {
+    controller,
+    touch,
+    clear: () => {
+      clearTimeout(totalTimer);
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+      }
+    },
+  };
 }
 
 function readAnthropicError(payload: unknown): string {
@@ -197,26 +324,36 @@ async function fetchRecoveryText(params: {
   system: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string } | { role: 'user'; content: string }>;
   attempt: number;
+  timeoutMs: number;
 }): Promise<string> {
-  const { apiKey, model, maxTokens, system, messages, attempt } = params;
-  const retryTokens = maxTokens * (attempt + 1);
+  const { apiKey, model, maxTokens, system, messages, attempt, timeoutMs } = params;
+  const retryTokens = maxTokens + attempt * 4_096;
+  const abort = createTimedAbortController(timeoutMs);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: retryTokens,
-      temperature: 0.2,
-      stream: false,
-      system: `${system}\n\n[재시도 규칙]\n응답이 중간에 끊겼습니다. 변경 요약 없이 수정된 파일 전체를 코드블록 하나로 출력하세요.`,
-      messages,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      signal: abort.controller.signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: retryTokens,
+        temperature: 0.2,
+        stream: false,
+        system: `${system}\n\n[재시도 규칙]\n응답이 중간에 끊겼습니다. 변경 요약 없이 수정된 파일 전체를 코드블록 하나로 출력하세요.`,
+        messages,
+      }),
+    });
+  } catch {
+    return '';
+  } finally {
+    abort.clear();
+  }
 
   if (!response.ok) {
     return '';
@@ -226,8 +363,47 @@ async function fetchRecoveryText(params: {
   return extractAnthropicText(payload);
 }
 
+function extractUpdateCandidate(path: string, responseText: string): string | null {
+  const codeBlockCandidate = pickBestCodeBlockCandidate(path, responseText);
+  if (codeBlockCandidate) {
+    return codeBlockCandidate;
+  }
+
+  return extractPlainTextCandidate(path, responseText);
+}
+
 export async function POST(req: NextRequest) {
   try {
+    const originCheck = verifyOrigin(req);
+    if (!originCheck.ok) {
+      return NextResponse.json(
+        {
+          error: '허용되지 않은 요청 출처입니다.',
+          details: originCheck.reason,
+        },
+        { status: 403 },
+      );
+    }
+
+    const rateLimit = enforceRateLimit(req, {
+      bucket: 'api-chat',
+      limit: getChatRateLimitMax(),
+      windowMs: getRateLimitWindowMs(),
+    });
+    if (!rateLimit.ok) {
+      return NextResponse.json(
+        {
+          error: '요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimit.retryAfterSeconds),
+          },
+        },
+      );
+    }
+
     const body = await req.json();
     const parsed = chatRequestSchema.safeParse(body);
 
@@ -270,8 +446,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const model = process.env.CLAUDE_CHAT_MODEL?.trim() || process.env.CLAUDE_MODEL?.trim() || DEFAULT_CHAT_MODEL;
+    const model = resolveChatModel();
     const maxTokens = resolveChatMaxTokens();
+    const maxResponseChars = resolveMaxResponseChars();
+    const streamTotalTimeoutMs = resolveChatStreamTotalTimeoutMs();
+    const streamIdleTimeoutMs = resolveChatStreamIdleTimeoutMs();
+    const recoveryTimeoutMs = resolveChatRecoveryTimeoutMs();
     const policy = resolveChatContextPolicy();
 
     const context = assembleChatContext({
@@ -288,6 +468,22 @@ export async function POST(req: NextRequest) {
       blueprint: input.blueprint,
       fileContext: context.fileContext,
       historySummary: context.historySummary,
+      contextBudget: {
+        totalBudgetChars: context.budget.totalBudgetChars,
+        fileBudgetChars: context.budget.fileBudgetChars,
+        historyBudgetChars: context.budget.historyBudgetChars,
+        maxMessageChars: context.budget.maxMessageChars,
+        maxHistoryTurns: context.budget.maxHistoryTurns,
+        maxHistoryTurnChars: context.budget.maxHistoryTurnChars,
+        pinnedHistoryTurns: context.budget.pinnedHistoryTurns,
+        fileCharsUsed: context.stats.fileCharsUsed,
+        historyCharsUsed: context.stats.historyCharsUsed,
+        messageChars: context.stats.messageChars,
+        historyTurnsReceived: context.stats.historyTurnsReceived,
+        historyTurnsUsed: context.stats.historyTurnsUsed,
+        historyTurnsSummarized: context.stats.historyTurnsSummarized,
+        trimmedChars: context.stats.trimmedChars,
+      },
     });
 
     const messages = [
@@ -321,6 +517,11 @@ export async function POST(req: NextRequest) {
           sendEvent('done', { ok });
         };
 
+        const upstreamAbort = createStreamingAbortController({
+          totalTimeoutMs: streamTotalTimeoutMs,
+          idleTimeoutMs: streamIdleTimeoutMs,
+        });
+
         try {
           const upstreamResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -329,6 +530,7 @@ export async function POST(req: NextRequest) {
               'x-api-key': apiKey,
               'anthropic-version': '2023-06-01',
             },
+            signal: upstreamAbort.controller.signal,
             body: JSON.stringify({
               model,
               max_tokens: maxTokens,
@@ -371,6 +573,7 @@ export async function POST(req: NextRequest) {
               break;
             }
 
+            upstreamAbort.touch();
             buffer += decoder.decode(value, { stream: true });
 
             let separatorIndex = buffer.indexOf('\n\n');
@@ -404,7 +607,7 @@ export async function POST(req: NextRequest) {
                   fullResponse += delta.text;
                   sendEvent('token', { text: delta.text });
 
-                  if (fullResponse.length > MAX_RESPONSE_CHARS) {
+                  if (fullResponse.length > maxResponseChars) {
                     overflowed = true;
                     await reader.cancel();
                     break;
@@ -463,13 +666,10 @@ export async function POST(req: NextRequest) {
           }
 
           if (!overflowed) {
-            let updatedContent = pickBestCodeBlockCandidate(input.selectedFile.path, fullResponse);
-            if (!updatedContent) {
-              updatedContent = extractPlainTextCandidate(input.selectedFile.path, fullResponse);
-            }
+            let updatedContent = extractUpdateCandidate(input.selectedFile.path, fullResponse);
 
-            if (!updatedContent && stopReason === 'max_tokens') {
-              for (let attempt = 1; attempt <= 3 && !updatedContent; attempt += 1) {
+            if (stopReason === 'max_tokens') {
+              for (let attempt = 1; attempt <= 3; attempt += 1) {
                 const recoveryText = await fetchRecoveryText({
                   apiKey,
                   model,
@@ -477,15 +677,17 @@ export async function POST(req: NextRequest) {
                   system,
                   messages,
                   attempt,
+                  timeoutMs: recoveryTimeoutMs,
                 });
                 if (!recoveryText) {
                   continue;
                 }
 
-                fullResponse = recoveryText;
-                updatedContent = pickBestCodeBlockCandidate(input.selectedFile.path, recoveryText);
-                if (!updatedContent) {
-                  updatedContent = extractPlainTextCandidate(input.selectedFile.path, recoveryText);
+                const recoveryCandidate = extractUpdateCandidate(input.selectedFile.path, recoveryText);
+                if (recoveryCandidate) {
+                  fullResponse = recoveryText;
+                  updatedContent = recoveryCandidate;
+                  break;
                 }
               }
             }
@@ -526,11 +728,18 @@ export async function POST(req: NextRequest) {
 
           sendDone(true);
         } catch (error) {
+          const message =
+            error instanceof Error && error.name === 'AbortError'
+              ? 'Claude API 응답 제한 시간을 초과했습니다.'
+              : error instanceof Error
+                ? error.message
+                : '채팅 처리 중 알 수 없는 오류가 발생했습니다.';
           sendEvent('error', {
-            message: error instanceof Error ? error.message : '채팅 처리 중 알 수 없는 오류가 발생했습니다.',
+            message,
           });
           sendDone(false);
         } finally {
+          upstreamAbort.clear();
           controller.close();
         }
       },
