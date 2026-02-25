@@ -14,9 +14,10 @@
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@monaco-editor/react": "^4.7.0",
+    "agent-browser": "^0.14.0",
     "clsx": "^2.1.1",
     "jszip": "^3.10.1",
-    "next": "14.2.35",
+    "next": "^16.1.6",
     "react": "^18",
     "react-dom": "^18",
     "react-hook-form": "^7.71.2",
@@ -29,11 +30,15 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@vitest/coverage-v8": "^4.0.18",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.35",
+    "eslint": "^9",
+    "eslint-config-next": "^16.1.6",
+    "playwright": "^1.58.2",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
     "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "lodash": "4.17.23"
   }
 }
