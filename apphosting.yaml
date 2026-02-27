@@ -58,6 +58,11 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: APP_ORIGIN
+    value: https://ai-maker-web--ai-maker-e5925.us-central1.hosted.app
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: RATE_LIMIT_WINDOW_MS
     value: "60000"
     availability:

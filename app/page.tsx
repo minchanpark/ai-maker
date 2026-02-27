@@ -10,9 +10,6 @@ export default function HomePage() {
         <div className="space-y-3">
           <p className="inline-flex rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">Idea-first MVP</p>
           <h1 className="text-2xl font-bold tracking-tight sm:text-4xl">Claude Code 커스텀 도구 생성기</h1>
-          <p className="text-sm leading-6 text-slate-600 sm:text-base">
-            프로젝트 아이디어와 사용자 문제만 입력하면 필요한 Skill/Hook/Agent 구성을 자동 생성하고 ZIP으로 다운로드할 수 있습니다.
-          </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
